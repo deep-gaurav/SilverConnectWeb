@@ -4,16 +4,29 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'dart:js';
 
-import 'package:SilverConnect/phoneInfo.dart';
 import 'package:flutter_web/cupertino.dart';
 import 'package:flutter_web/material.dart';
 
 import 'phoneInfo.dart';
+import 'filePlugin.dart';
+
+StreamController<Map> messageStream = StreamController.broadcast();
+StreamController rawmessageStream = StreamController.broadcast();
+StreamController sendStream = StreamController.broadcast();
 
 Future main() async {
   if (!html.window.localStorage.containsKey("connections")) {
     html.window.localStorage["connections"] = json.encode([]);
   }
+  messageStream.stream.listen((data){
+    if((data as Map).containsKey("notify")){
+      new html.Notification(data["notificationtitle"]);
+    }
+  });
+
+  rawmessageStream.stream.listen((data){
+    print(data);
+  });
   runApp(MyApp());
 }
 
@@ -51,13 +64,17 @@ class _MyHomePageState extends State<MyHomePage> {
   var _editingcontroller = TextEditingController();
   var _nameEditingcontroller = TextEditingController();
 
-  ValueNotifier<info> phoneInfo =
-      ValueNotifier(info(battery: 0, name: "", brand: ""));
+  List plugins = [
+    PhoneInfoPlugin(),
+    ReceiverPlugin()
+  ];
+
 
   Timer timer;
 
+  Completer testcompleter;
+
   void tryoldconnect() {
-    return;
     print("TRY OLDS");
     var oldm = json.decode(html.window.localStorage["connections"]);
     for (var connections in oldm) {
@@ -71,7 +88,12 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  void connect(String ip, {port = 9000}) {
+  void connect(String ip, {port = 9000}) async{
+    if(testcompleter!=null && !testcompleter.isCompleted){
+      return;
+    }else{
+      testcompleter=Completer();
+    }
     context["Fingerprint2"].callMethod("get", [
       (components) {
         List<String> values = List();
@@ -85,6 +107,10 @@ class _MyHomePageState extends State<MyHomePage> {
         print(murmur);
         websocket = new html.WebSocket("ws://$ip:$port");
 
+        sendStream.stream.listen((data){
+            websocket.send(data);
+        });
+
         var data = {
           "name": _nameEditingcontroller.text,
           "type": "connectionRequest",
@@ -95,40 +121,48 @@ class _MyHomePageState extends State<MyHomePage> {
           websocket.send(json.encode(data));
         });
         websocket.onMessage.listen((data) {
-          logmessage.value = data.data;
-          var message = json.decode(data.data);
 
-          if (message["type"] == "ConnectionGranted") {
-            var l = (html.window.localStorage["connections"]);
-            Set peers = HashSet(equals: (e1, e2) => e1["id"] == e2["id"]);
-            peers.addAll(json.decode(l) as List);
-            if (peers.contains(message)) {
-              var oldm = peers.lookup(message);
-              var oldmurls = Set.from(oldm["urls"]);
-              oldmurls.add(ip);
-              oldm["urls"] = oldmurls.toList();
-              peers.remove(oldm);
-              peers.add(oldm);
-            } else {
-              message["urls"] = [ip];
-              peers.add(message);
+          rawmessageStream.add(data.data);
+
+          try{
+            var message = json.decode(data.data);
+
+            messageStream.add(message);
+
+            if (message["type"] == "ConnectionGranted") {
+              print("connection");
+              var l = (html.window.localStorage["connections"]);
+              Set peers = HashSet(equals: (e1, e2) => e1["id"] == e2["id"]);
+              peers.addAll(json.decode(l) as List);
+              if (peers.contains(message)) {
+                var oldm = peers.lookup(message);
+                var oldmurls = Set.from(oldm["urls"]);
+                oldmurls.add(ip);
+                oldm["urls"] = oldmurls.toList();
+                peers.remove(oldm);
+                peers.add(oldm);
+              } else {
+                message["urls"] = [ip];
+                peers.add(message);
+              }
+              print(message);
+              print(peers);
+              var peerslist = peers.toList();
+              html.window.localStorage["connections"] = json.encode(peerslist);
+              setState(() {});
+
             }
-            print(message);
-            print(peers);
-            var peerslist = peers.toList();
-            html.window.localStorage["connections"] = json.encode(peerslist);
-            phoneInfo.value = info(
-                battery: message["battery"],
-                brand: message["brand"],
-                name: message["name"]);
-            setState(() {});
+          }catch(e){
+            print(e);
           }
+
         });
         websocket.onClose.listen((data) {
           setState(() {
             websocket = null;
           });
         });
+        testcompleter.complete();
       }
     ]);
   }
@@ -148,6 +182,7 @@ class _MyHomePageState extends State<MyHomePage> {
         tryoldconnect();
       }
     });
+
   }
 
   @override
@@ -196,12 +231,7 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
           if (websocket != null)
-            ValueListenableBuilder(
-              valueListenable: phoneInfo,
-              builder: (context, phoneinfo, child) {
-                return PhoneInfo(phoneinfo);
-              },
-            )
+            ...plugins
         ],
       ),
       floatingActionButton: FloatingActionButton(
