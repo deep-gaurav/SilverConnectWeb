@@ -1,0 +1,1 @@
+web: ./dart-sdk/bin/pub global run webdev serve -r
