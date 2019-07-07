@@ -1,1 +1,1 @@
-web: ./dart-sdk/bin/pub global activate webdev && ./dart-sdk/bin/pub global run webdev serve -r
+web: ./dart-sdk/bin/dart bin/main.dart
