@@ -12,6 +12,12 @@ class ReceiverPlugin extends StatelessWidget{
 
   List blobparts;
 
+  StreamController streamController;
+
+  var progress = ValueNotifier(0);
+  var overallsize = ValueNotifier(0);
+
+
   var receive=false;
 
   ReceiverPlugin(){
@@ -21,6 +27,7 @@ class ReceiverPlugin extends StatelessWidget{
         if(receive){
           print("add toblob");
           blobparts.add(data);
+          progress.value+=data.size;
         }else{
 
         }
@@ -32,6 +39,7 @@ class ReceiverPlugin extends StatelessWidget{
             blobparts=[];
             receive=true;
             print("startreceivingfile");
+            overallsize.value=data["size"];
           }else if(data["type"]=="sendfile" && data["mark"]=="stop"){
             receive=false;
             fileblob=html.Blob(blobparts);
@@ -48,7 +56,20 @@ class ReceiverPlugin extends StatelessWidget{
 
   @override
   Widget build(BuildContext context) {
-    return Container();
+    return Container(
+      child: ValueListenableBuilder(
+        valueListenable: progress,
+        builder: (context,p,child){
+          if(overallsize.value>0){
+            return LinearProgressIndicator(
+              value: progress.value/overallsize.value,
+            );
+          }else{
+            return Container();
+          }
+        },
+      ),
+    );
   }
 
 }
